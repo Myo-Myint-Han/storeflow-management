@@ -161,7 +161,7 @@ export default function SalesPage() {
       const { data, error, count } = await query;
 
       if (error) throw error;
-      setSales((data || []) as SaleWithItems[]);
+      setSales((data || []) as unknown as SaleWithItems[]);
       setTotalCount(count || 0);
     } catch (error) {
       console.error("Error fetching sales:", error);

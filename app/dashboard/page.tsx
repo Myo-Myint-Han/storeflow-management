@@ -305,7 +305,7 @@ export default function DashboardPage() {
           .limit(5),
       ]);
 
-      const salesData = (salesResult.data || []) as Sale[];
+      const salesData = (salesResult.data || []) as unknown as Sale[];
 
       // Calculate today's stats (filter in memory, faster than separate query)
       const todaySales = salesData
