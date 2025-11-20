@@ -79,7 +79,7 @@ export default function NewSalePage() {
       const { data, error } = await query;
 
       if (error) throw error;
-      setProducts(data || []);
+      setProducts((data || []) as unknown as Product[]);
     } catch (error) {
       console.error("Error fetching products:", error);
       toast.error("Failed to load products");
