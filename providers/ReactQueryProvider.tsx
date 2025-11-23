@@ -14,29 +14,21 @@ export function ReactQueryProvider({
       new QueryClient({
         defaultOptions: {
           queries: {
-            // ⚡ AGGRESSIVE CACHING for Vercel
-            staleTime: 5 * 60 * 1000, // 5 minutes - keep data fresh
-            gcTime: 10 * 60 * 1000, // 10 minutes - keep in memory
-
-            // ⚡ Retry with exponential backoff
-            retry: 3,
-            retryDelay: (attemptIndex) =>
-              Math.min(1000 * 2 ** attemptIndex, 5000),
-
-            // ⚡ Disable unnecessary refetches
+            // ⚡ VERCEL OPTIMIZATION: Keep data cached for 5 minutes
+            staleTime: 5 * 60 * 1000,
+            gcTime: 10 * 60 * 1000,
+            
+            // ⚡ Don't refetch unnecessarily
             refetchOnWindowFocus: false,
             refetchOnReconnect: false,
             refetchOnMount: false,
-
-            // ⚡ Network mode optimization
-            networkMode: "online",
-
-            // ⚡ Placeholders for instant UI (fixed type)
-            placeholderData: (previousData: unknown) => previousData,
+            
+            // ⚡ Retry on failure
+            retry: 2,
+            retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 3000),
           },
           mutations: {
-            retry: 2,
-            retryDelay: 1000,
+            retry: 1,
           },
         },
       })

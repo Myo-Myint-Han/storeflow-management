@@ -1,15 +1,15 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // ⚡ VERCEL OPTIMIZATION
+  // Remove console logs in production
   compiler: {
     removeConsole: process.env.NODE_ENV === "production",
   },
 
-  // ⚡ Disable source maps in production (faster builds)
+  // Optimize production build
   productionBrowserSourceMaps: false,
 
-  // ⚡ Optimize for Vercel Edge
+  // Experimental optimizations
   experimental: {
     optimizePackageImports: [
       "recharts",
@@ -17,41 +17,25 @@ const nextConfig: NextConfig = {
       "@supabase/supabase-js",
       "@supabase/ssr",
       "date-fns",
-      "@radix-ui/react-dialog",
-      "@radix-ui/react-select",
-      "@radix-ui/react-dropdown-menu",
-      "@radix-ui/react-alert-dialog",
-      "@radix-ui/react-avatar",
-      "@radix-ui/react-label",
-      "@radix-ui/react-separator",
     ],
   },
 
-  // ⚡ Use Turbopack in development only
+  // Turbopack configuration
   turbopack: {},
 
-  // ⚡ Image optimization
+  // Image optimization
   images: {
     remotePatterns: [
       {
         protocol: "https",
         hostname: "*.supabase.co",
-        pathname: "/storage/v1/object/public/**",
-      },
-      {
-        protocol: "https",
-        hostname: "*.supabase.in",
-        pathname: "/storage/v1/object/public/**",
       },
     ],
     formats: ["image/avif", "image/webp"],
-    minimumCacheTTL: 60 * 60 * 24 * 7, // 7 days
-    // ⚡ Optimize for Vercel
-    deviceSizes: [640, 750, 828, 1080, 1200, 1920],
-    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
+    minimumCacheTTL: 60 * 60 * 24 * 7,
   },
 
-  // ⚡ Security headers (Vercel-optimized)
+  // ⚡ CRITICAL: Add aggressive caching headers
   async headers() {
     return [
       {
@@ -60,17 +44,16 @@ const nextConfig: NextConfig = {
           { key: "X-DNS-Prefetch-Control", value: "on" },
           { key: "X-Frame-Options", value: "DENY" },
           { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "X-XSS-Protection", value: "1; mode=block" },
-          { key: "Referrer-Policy", value: "origin-when-cross-origin" },
+          // ⚡ Cache everything for 60 seconds
           {
-            key: "Permissions-Policy",
-            value: "camera=(), microphone=(), geolocation=()",
+            key: "Cache-Control",
+            value: "public, s-maxage=60, stale-while-revalidate=120",
           },
         ],
       },
       {
-        // ⚡ Cache static assets aggressively
-        source: "/static/:path*",
+        // ⚡ Cache static assets for 1 year
+        source: "/_next/static/:path*",
         headers: [
           {
             key: "Cache-Control",
@@ -78,37 +61,7 @@ const nextConfig: NextConfig = {
           },
         ],
       },
-      {
-        // ⚡ Cache images
-        source: "/_next/image/:path*",
-        headers: [
-          {
-            key: "Cache-Control",
-            value: "public, max-age=86400, stale-while-revalidate=604800",
-          },
-        ],
-      },
-      {
-        // ⚡ API routes - cache for 60 seconds
-        source: "/api/:path*",
-        headers: [
-          {
-            key: "Cache-Control",
-            value: "public, s-maxage=60, stale-while-revalidate=120",
-          },
-        ],
-      },
     ];
-  },
-
-  // ⚡ Redirects
-  async redirects() {
-    return [];
-  },
-
-  // ⚡ Rewrites
-  async rewrites() {
-    return [];
   },
 };
 
