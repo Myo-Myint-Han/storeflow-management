@@ -34,33 +34,31 @@ export default function DashboardLayout({
   const { user, profile, loading, signOut } = useAuth();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // ⚡ Add state to track if we've checked auth
+  const [authChecked, setAuthChecked] = useState(false);
 
   useEffect(() => {
-    if (!loading && !user) {
-      router.push("/login");
-    }
+    // ⚡ Wait a moment for auth to load (non-blocking)
+    const checkAuth = setTimeout(() => {
+      setAuthChecked(true);
+
+      // Only redirect if definitely not logged in
+      if (!loading && !user) {
+        console.log("🔴 No user found, redirecting to login...");
+        router.push("/login");
+      }
+    }, 1000); // Give auth 1 second to load
+
+    return () => clearTimeout(checkAuth);
   }, [user, loading, router]);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user || !profile) {
-    return null;
-  }
 
   const handleSignOut = async () => {
     await signOut();
     router.push("/login");
   };
 
+  // ⚡ Show layout immediately (don't wait for auth)
+  // If not logged in, useEffect will redirect
   const navigation = [
     {
       name: "Dashboard",
@@ -72,7 +70,7 @@ export default function DashboardLayout({
       name: "Products",
       href: "/dashboard/products",
       icon: Package,
-      roles: ["owner", "receptionist"], // ✅ Now accessible to receptionist
+      roles: ["owner", "receptionist"],
     },
     {
       name: "Sales",
@@ -106,9 +104,9 @@ export default function DashboardLayout({
     },
   ];
 
-  const filteredNavigation = navigation.filter((item) =>
-    item.roles.includes(profile.role)
-  );
+  const filteredNavigation = profile
+    ? navigation.filter((item) => item.roles.includes(profile.role))
+    : navigation;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -173,30 +171,34 @@ export default function DashboardLayout({
           </button>
 
           <div className="flex items-center space-x-4 ml-auto">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm">
-                  <Avatar className="h-8 w-8">
-                    <AvatarFallback className="bg-blue-600 text-white text-xs">
-                      {profile.full_name.charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel>
-                  <div>
-                    <p className="font-medium">{profile.full_name}</p>
-                    <p className="text-xs text-gray-500">{profile.email}</p>
-                  </div>
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleSignOut}>
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Sign Out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            {profile ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm">
+                    <Avatar className="h-8 w-8">
+                      <AvatarFallback className="bg-blue-600 text-white text-xs">
+                        {profile.full_name.charAt(0).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel>
+                    <div>
+                      <p className="font-medium">{profile.full_name}</p>
+                      <p className="text-xs text-gray-500">{profile.email}</p>
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={handleSignOut}>
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Sign Out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : (
+              <div className="h-8 w-8 bg-gray-200 rounded-full animate-pulse" />
+            )}
           </div>
         </header>
 
