@@ -189,77 +189,13 @@ export default function SalesPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Sales History</h1>
           <p className="text-gray-500 mt-1">
-            View all transactions and revenue ({totalCount} total)
+            View all transactions ({totalCount} total)
           </p>
         </div>
         <Button onClick={() => router.push("/dashboard/sales/new")} size="lg">
           <Plus className="h-5 w-5 mr-2" />
           New Sale
         </Button>
-      </div>
-
-      {/* Statistics Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-gray-600">
-              Today Sales
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">
-              ฿{stats.todayRevenue.toFixed(2)}
-            </div>
-            <p className="text-xs text-gray-500 mt-1">
-              {stats.todayCount} transaction{stats.todayCount !== 1 ? "s" : ""}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-gray-600">
-              Today Profit
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">
-              ฿{stats.todayProfit.toFixed(2)}
-            </div>
-            <p className="text-xs text-gray-500 mt-1">
-              {stats.todayRevenue > 0
-                ? ((stats.todayProfit / stats.todayRevenue) * 100).toFixed(1)
-                : 0}
-              % margin
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-gray-600">
-              Total Revenue
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              ฿{stats.totalRevenue.toFixed(2)}
-            </div>
-            <p className="text-xs text-gray-500 mt-1">All time</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-medium text-gray-600">
-              Average Sale
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">฿{avgSale.toFixed(2)}</div>
-            <p className="text-xs text-gray-500 mt-1">Per transaction</p>
-          </CardContent>
-        </Card>
       </div>
 
       {/* Search */}

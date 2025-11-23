@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "@/providers/AuthProvider";
 import { createClient } from "@/lib/supabase/client";
 import { Database } from "@/types/database.types";
@@ -24,6 +24,7 @@ import {
   Trash2,
   CheckCircle2,
   Package,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -43,9 +44,10 @@ export default function NewSalePage() {
   const [saving, setSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState<
-    "cash" | "card" | "transfer"
-  >("cash");
+  // ✅ FIXED: Changed from "transfer" to "other"
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "card" | "other">(
+    "cash"
+  );
 
   // Debounce search
   useEffect(() => {
@@ -56,19 +58,15 @@ export default function NewSalePage() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  useEffect(() => {
-    fetchProducts();
-  }, []);
-
-  const fetchProducts = async () => {
+  // ✅ FIXED: Use useCallback to memoize fetchProducts
+  const fetchProducts = useCallback(async () => {
     try {
       setLoading(true);
+      // ✅ FIXED: Select all fields with "*" to match Product type
       let query = supabase
         .from("products")
-        .select(
-          "id, name, sku, category, selling_price, buying_price, stock, store_id"
-        )
-        .gt("stock", 0) // Only show products with stock
+        .select("*")
+        .gt("stock", 0)
         .order("name");
 
       // If receptionist, filter by their store
@@ -79,20 +77,24 @@ export default function NewSalePage() {
       const { data, error } = await query;
 
       if (error) throw error;
-      setProducts((data || []) as unknown as Product[]);
+      setProducts(data || []);
     } catch (error) {
       console.error("Error fetching products:", error);
       toast.error("Failed to load products");
     } finally {
       setLoading(false);
     }
-  };
+  }, [profile?.role, profile?.store_id, supabase]);
+
+  // ✅ FIXED: Added fetchProducts to dependency array
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
 
   const addToCart = (product: Product) => {
     setCart((prev) => {
       const existing = prev.find((item) => item.id === product.id);
       if (existing) {
-        // Check if we have enough stock
         if (existing.quantity >= product.stock) {
           toast.error(`Only ${product.stock} units available`);
           return prev;
@@ -206,7 +208,7 @@ export default function NewSalePage() {
 
       if (itemsError) throw itemsError;
 
-      // ⚡ OPTIMIZATION: Update only affected products in state (optimistic update)
+      // ⚡ OPTIMISTIC UPDATE: Update products state immediately
       setProducts((prevProducts) =>
         prevProducts.map((product) => {
           const soldItem = cart.find((item) => item.id === product.id);
@@ -288,9 +290,10 @@ export default function NewSalePage() {
             <CardContent>
               {loading ? (
                 <div className="flex items-center justify-center py-12">
-                  <div className="text-gray-600 font-medium">
+                  <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+                  <span className="ml-3 text-gray-600">
                     Loading products...
-                  </div>
+                  </span>
                 </div>
               ) : filteredProducts.length === 0 ? (
                 <div className="text-center py-12">
@@ -453,7 +456,7 @@ export default function NewSalePage() {
                     <Label htmlFor="payment">Payment Method</Label>
                     <Select
                       value={paymentMethod}
-                      onValueChange={(value: "cash" | "card" | "transfer") =>
+                      onValueChange={(value: "cash" | "card" | "other") =>
                         setPaymentMethod(value)
                       }
                     >
@@ -463,7 +466,7 @@ export default function NewSalePage() {
                       <SelectContent>
                         <SelectItem value="cash">Cash</SelectItem>
                         <SelectItem value="card">Card</SelectItem>
-                        <SelectItem value="transfer">Bank Transfer</SelectItem>
+                        <SelectItem value="other">Other</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -503,7 +506,7 @@ export default function NewSalePage() {
                   >
                     {saving ? (
                       <>
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        <Loader2 className="h-5 w-5 mr-2 animate-spin" />
                         Processing...
                       </>
                     ) : (
