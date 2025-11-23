@@ -4,10 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/AuthProvider";
 import { createClient } from "@/lib/supabase/client";
-import { Database } from "@/types/database.types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
@@ -18,11 +15,6 @@ import {
 import {
   LineChart,
   Line,
-  BarChart,
-  Bar,
-  PieChart,
-  Pie,
-  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -33,7 +25,6 @@ import {
 import {
   DollarSign,
   TrendingUp,
-  Package,
   ShoppingCart,
   AlertTriangle,
   Calendar,
@@ -66,39 +57,12 @@ type Sale = {
   sale_items: SaleItem[];
 };
 
-type Product = Database["public"]["Tables"]["products"]["Row"];
-
 type ChartData = {
   date: string;
   revenue: number;
   profit: number;
   orders: number;
 };
-
-type CategoryData = {
-  name: string;
-  value: number;
-};
-
-type ProductStat = {
-  name: string;
-  quantity: number;
-  revenue: number;
-};
-
-type PaymentMethodData = {
-  name: string;
-  value: number;
-};
-
-const COLORS = [
-  "#3b82f6",
-  "#10b981",
-  "#f59e0b",
-  "#ef4444",
-  "#8b5cf6",
-  "#ec4899",
-];
 
 export default function DashboardPage() {
   const { profile } = useAuth();
@@ -124,12 +88,6 @@ export default function DashboardPage() {
 
   // Charts data
   const [salesTrendData, setSalesTrendData] = useState<ChartData[]>([]);
-  const [categoryData, setCategoryData] = useState<CategoryData[]>([]);
-  const [topProducts, setTopProducts] = useState<ProductStat[]>([]);
-  const [paymentMethodData, setPaymentMethodData] = useState<
-    PaymentMethodData[]
-  >([]);
-  const [lowStockProducts, setLowStockProducts] = useState<Product[]>([]);
 
   // Redirect receptionist
   useEffect(() => {
@@ -138,7 +96,7 @@ export default function DashboardPage() {
     }
   }, [profile, router]);
 
-  const getDateRange = () => {
+  const getDateRange = useCallback(() => {
     const today = new Date();
 
     switch (timeRange) {
@@ -167,95 +125,34 @@ export default function DashboardPage() {
           label: "Last 7 Days",
         };
     }
-  };
+  }, [timeRange]);
 
-  const generateSalesTrend = (sales: Sale[], start: Date, end: Date) => {
-    const days = eachDayOfInterval({ start, end });
+  const generateSalesTrend = useCallback(
+    (sales: Sale[], start: Date, end: Date) => {
+      const days = eachDayOfInterval({ start, end });
 
-    const trend = days.map((day) => {
-      const daySales = sales.filter((s) => {
-        const saleDate = new Date(s.created_at);
-        return saleDate.toDateString() === day.toDateString();
+      const trend = days.map((day) => {
+        const daySales = sales.filter((s) => {
+          const saleDate = new Date(s.created_at);
+          return saleDate.toDateString() === day.toDateString();
+        });
+
+        const revenue = daySales.reduce((sum, s) => sum + s.total_amount, 0);
+        const profit = daySales.reduce((sum, s) => sum + s.profit, 0);
+        const orders = daySales.length;
+
+        return {
+          date: format(day, "MMM dd"),
+          revenue: Number(revenue.toFixed(2)),
+          profit: Number(profit.toFixed(2)),
+          orders,
+        };
       });
 
-      const revenue = daySales.reduce((sum, s) => sum + s.total_amount, 0);
-      const profit = daySales.reduce((sum, s) => sum + s.profit, 0);
-      const orders = daySales.length;
-
-      return {
-        date: format(day, "MMM dd"),
-        revenue: Number(revenue.toFixed(2)),
-        profit: Number(profit.toFixed(2)),
-        orders,
-      };
-    });
-
-    setSalesTrendData(trend);
-  };
-
-  const generateCategoryData = (sales: Sale[]) => {
-    const categoryRevenue: Record<string, number> = {};
-
-    sales.forEach((sale) => {
-      sale.sale_items?.forEach((item) => {
-        const category = item.products?.category || "Uncategorized";
-        categoryRevenue[category] =
-          (categoryRevenue[category] || 0) + item.subtotal;
-      });
-    });
-
-    const data = Object.entries(categoryRevenue).map(([name, value]) => ({
-      name,
-      value: Number(value.toFixed(2)),
-    }));
-
-    setCategoryData(data);
-  };
-
-  const generateTopProducts = (sales: Sale[]) => {
-    const productStats: Record<string, ProductStat> = {};
-
-    sales.forEach((sale) => {
-      sale.sale_items?.forEach((item) => {
-        const productId = item.product_id;
-        if (!productStats[productId]) {
-          productStats[productId] = {
-            name: item.products?.name || "Unknown",
-            quantity: 0,
-            revenue: 0,
-          };
-        }
-        productStats[productId].quantity += item.quantity;
-        productStats[productId].revenue += item.subtotal;
-      });
-    });
-
-    const data = Object.values(productStats)
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 5)
-      .map((item) => ({
-        ...item,
-        revenue: Number(item.revenue.toFixed(2)),
-      }));
-
-    setTopProducts(data);
-  };
-
-  const generatePaymentMethodData = (sales: Sale[]) => {
-    const methodRevenue: Record<string, number> = {};
-
-    sales.forEach((sale) => {
-      const method = sale.payment_method || "cash";
-      methodRevenue[method] = (methodRevenue[method] || 0) + sale.total_amount;
-    });
-
-    const data = Object.entries(methodRevenue).map(([name, value]) => ({
-      name: name.charAt(0).toUpperCase() + name.slice(1),
-      value: Number(value.toFixed(2)),
-    }));
-
-    setPaymentMethodData(data);
-  };
+      setSalesTrendData(trend);
+    },
+    []
+  );
 
   const fetchDashboardData = useCallback(async () => {
     try {
@@ -266,9 +163,8 @@ export default function DashboardPage() {
 
       const { start, end } = getDateRange();
 
-      // ⚡ Run all queries in parallel
+      // Run all queries in parallel
       const [salesResult, productsResult, lowStockResult] = await Promise.all([
-        // Query 1: Sales data with items (only for selected period)
         supabase
           .from("sales")
           .select(
@@ -293,10 +189,8 @@ export default function DashboardPage() {
           .lte("created_at", end.toISOString())
           .order("created_at", { ascending: true }),
 
-        // Query 2: Product count (just count, not full data)
         supabase.from("products").select("id", { count: "exact", head: true }),
 
-        // Query 3: Only low stock products (limited to 5)
         supabase
           .from("products")
           .select("id, name, sku, stock, low_stock_threshold")
@@ -307,7 +201,6 @@ export default function DashboardPage() {
 
       const salesData = (salesResult.data || []) as unknown as Sale[];
 
-      // Calculate today's stats (filter in memory, faster than separate query)
       const todaySales = salesData
         .filter((s) => new Date(s.created_at) >= today)
         .reduce((sum, s) => sum + s.total_amount, 0);
@@ -316,13 +209,11 @@ export default function DashboardPage() {
         .filter((s) => new Date(s.created_at) >= today)
         .reduce((sum, s) => sum + s.profit, 0);
 
-      // Calculate period stats
       const periodSales = salesData.reduce((sum, s) => sum + s.total_amount, 0);
       const periodProfit = salesData.reduce((sum, s) => sum + s.profit, 0);
       const totalOrders = salesData.length;
       const avgOrderValue = totalOrders > 0 ? periodSales / totalOrders : 0;
 
-      // Get counts
       const totalProducts = productsResult.count || 0;
       const lowStock = lowStockResult.data || [];
 
@@ -337,19 +228,14 @@ export default function DashboardPage() {
         lowStockCount: lowStock.length,
       });
 
-      setLowStockProducts(lowStock as Product[]);
-
       // Generate charts data
       generateSalesTrend(salesData, start, end);
-      generateCategoryData(salesData);
-      generateTopProducts(salesData);
-      generatePaymentMethodData(salesData);
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
     } finally {
       setLoading(false);
     }
-  }, [timeRange, supabase]);
+  }, [timeRange, supabase, getDateRange, generateSalesTrend]);
 
   useEffect(() => {
     if (profile?.role === "owner") {
@@ -513,185 +399,6 @@ export default function DashboardPage() {
           </ResponsiveContainer>
         </CardContent>
       </Card>
-
-      {/* Charts Row */}
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* Top Products */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Top 5 Products</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={topProducts} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis
-                  type="number"
-                  stroke="#888"
-                  style={{ fontSize: "12px" }}
-                />
-                <YAxis
-                  type="category"
-                  dataKey="name"
-                  width={120}
-                  stroke="#888"
-                  style={{ fontSize: "12px" }}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: "#fff",
-                    border: "1px solid #e5e7eb",
-                    borderRadius: "8px",
-                  }}
-                />
-                <Bar dataKey="revenue" fill="#3b82f6" name="Revenue (฿)" />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        {/* Category Distribution */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Sales by Category</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <PieChart>
-                <Pie
-                  data={categoryData}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) =>
-                    `${name}: ${((percent || 0) * 100).toFixed(0)}%`
-                  }
-                  outerRadius={80}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {categoryData.map((entry, index) => (
-                    <Cell
-                      key={`cell-${index}`}
-                      fill={COLORS[index % COLORS.length]}
-                    />
-                  ))}
-                </Pie>
-                <Tooltip
-                  formatter={(value: number) => `฿${value.toFixed(2)}`}
-                  contentStyle={{
-                    backgroundColor: "#fff",
-                    border: "1px solid #e5e7eb",
-                    borderRadius: "8px",
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Bottom Row */}
-      <div className="grid gap-4 md:grid-cols-2">
-        {/* Payment Methods */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Payment Methods</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-4">
-              {paymentMethodData.map((method, index) => {
-                const total = paymentMethodData.reduce(
-                  (sum, m) => sum + m.value,
-                  0
-                );
-                const percentage = total > 0 ? (method.value / total) * 100 : 0;
-
-                return (
-                  <div key={method.name}>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-gray-700">
-                        {method.name}
-                      </span>
-                      <span className="text-sm font-bold text-gray-900">
-                        ฿{method.value.toFixed(2)}
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div
-                        className="h-2 rounded-full"
-                        style={{
-                          width: `${percentage}%`,
-                          backgroundColor: COLORS[index % COLORS.length],
-                        }}
-                      />
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
-                      {percentage.toFixed(1)}% of total sales
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Low Stock Products */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between">
-              Low Stock Products
-              <Badge variant="destructive">{stats.lowStockCount}</Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {lowStockProducts.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                <Package className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                <p>All products are well stocked!</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {lowStockProducts.map((product) => (
-                  <div
-                    key={product.id}
-                    className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-100"
-                  >
-                    <div className="flex-1">
-                      <p className="font-medium text-gray-900 text-sm">
-                        {product.name}
-                      </p>
-                      {product.sku && (
-                        <p className="text-xs text-gray-500">
-                          SKU: {product.sku}
-                        </p>
-                      )}
-                    </div>
-                    <div className="text-right">
-                      <Badge variant="destructive" className="text-xs">
-                        {product.stock} left
-                      </Badge>
-                      <p className="text-xs text-gray-500 mt-1">
-                        Min: {product.low_stock_threshold}
-                      </p>
-                    </div>
-                  </div>
-                ))}
-                {stats.lowStockCount > 5 && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    onClick={() => router.push("/dashboard/products")}
-                  >
-                    View All ({stats.lowStockCount})
-                  </Button>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
     </div>
   );
 }

@@ -5,7 +5,7 @@ export async function middleware(request: NextRequest) {
   try {
     // ⚡ Add timeout to prevent infinite hanging
     const timeoutPromise = new Promise<NextResponse>((_, reject) => {
-      setTimeout(() => reject(new Error("Middleware timeout")), 5000); // 5s timeout
+      setTimeout(() => reject(new Error("Middleware timeout")), 3000);
     });
 
     const sessionPromise = updateSession(request);
