@@ -1,18 +1,16 @@
-// next.config.ts (optimized for Next.js 16 with Turbopack)
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Remove console logs in production
+  // ⚡ VERCEL OPTIMIZATION
   compiler: {
     removeConsole: process.env.NODE_ENV === "production",
   },
 
-  // Optimize production build
+  // ⚡ Disable source maps in production (faster builds)
   productionBrowserSourceMaps: false,
 
-  // Experimental optimizations
+  // ⚡ Optimize for Vercel Edge
   experimental: {
-    // Tree-shake these packages for smaller bundles
     optimizePackageImports: [
       "recharts",
       "lucide-react",
@@ -26,19 +24,14 @@ const nextConfig: NextConfig = {
       "@radix-ui/react-avatar",
       "@radix-ui/react-label",
       "@radix-ui/react-separator",
-      "class-variance-authority",
-      "clsx",
-      "tailwind-merge",
     ],
   },
 
-  // Turbopack configuration (Next.js 16+)
-  // Empty object enables Turbopack with default settings
+  // ⚡ Use Turbopack in development only
   turbopack: {},
 
-  // Image optimization configuration
+  // ⚡ Image optimization
   images: {
-    // Allow images from Supabase storage
     remotePatterns: [
       {
         protocol: "https",
@@ -51,30 +44,24 @@ const nextConfig: NextConfig = {
         pathname: "/storage/v1/object/public/**",
       },
     ],
-    // Modern formats for better compression
     formats: ["image/avif", "image/webp"],
-    // Cache images for 7 days
-    minimumCacheTTL: 60 * 60 * 24 * 7,
+    minimumCacheTTL: 60 * 60 * 24 * 7, // 7 days
+    // ⚡ Optimize for Vercel
+    deviceSizes: [640, 750, 828, 1080, 1200, 1920],
+    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
   },
 
-  // Security and caching headers
+  // ⚡ Security headers (Vercel-optimized)
   async headers() {
     return [
       {
-        // Apply to all routes
         source: "/:path*",
         headers: [
-          // DNS prefetching for faster external resource loading
           { key: "X-DNS-Prefetch-Control", value: "on" },
-          // Prevent clickjacking
           { key: "X-Frame-Options", value: "DENY" },
-          // Prevent MIME type sniffing
           { key: "X-Content-Type-Options", value: "nosniff" },
-          // XSS protection (legacy browsers)
           { key: "X-XSS-Protection", value: "1; mode=block" },
-          // Referrer policy
           { key: "Referrer-Policy", value: "origin-when-cross-origin" },
-          // Permissions policy
           {
             key: "Permissions-Policy",
             value: "camera=(), microphone=(), geolocation=()",
@@ -82,7 +69,7 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        // Cache static assets aggressively
+        // ⚡ Cache static assets aggressively
         source: "/static/:path*",
         headers: [
           {
@@ -92,7 +79,7 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        // Cache images
+        // ⚡ Cache images
         source: "/_next/image/:path*",
         headers: [
           {
@@ -102,19 +89,24 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        // API routes - no cache by default (handled per-route)
+        // ⚡ API routes - cache for 60 seconds
         source: "/api/:path*",
-        headers: [{ key: "Cache-Control", value: "no-store, must-revalidate" }],
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, s-maxage=60, stale-while-revalidate=120",
+          },
+        ],
       },
     ];
   },
 
-  // Redirects (add as needed)
+  // ⚡ Redirects
   async redirects() {
     return [];
   },
 
-  // Rewrites (add as needed)
+  // ⚡ Rewrites
   async rewrites() {
     return [];
   },
