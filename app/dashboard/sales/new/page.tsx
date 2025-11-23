@@ -226,7 +226,7 @@ export default function NewSalePage() {
       toast.success("🎉 Sale Completed Successfully!", {
         description: `Total: ฿${totalAmount.toFixed(
           2
-        )} • Profit: ฿${profit.toFixed(2)} • ${totalItems} items sold`,
+        )}• ${totalItems} items sold`,
         duration: 3000,
       });
 

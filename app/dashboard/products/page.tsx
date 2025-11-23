@@ -1,10 +1,8 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/AuthProvider";
-import { createClient } from "@/lib/supabase/client";
-import { Database } from "@/types/database.types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -49,134 +47,46 @@ import {
   Package,
   Loader2,
 } from "lucide-react";
-import { invalidateProductsCache } from "@/lib/cache-actions";
-import { toast } from "sonner";
-
-type Product = Database["public"]["Tables"]["products"]["Row"];
+import {
+  useProducts,
+  useStores,
+  useDeleteProduct,
+  usePrefetchProducts,
+} from "@/hooks/useSupabaseQuery";
+import { useDebounce } from "@/hooks/useDebounce";
 
 export default function ProductsPage() {
   const { profile } = useAuth();
   const router = useRouter();
-  const supabase = createClient();
+  const prefetchProducts = usePrefetchProducts();
 
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [selectedStore, setSelectedStore] = useState<string>("all");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const [productToDeleteId, setProductToDeleteId] = useState<string | null>(
+    null
+  );
 
-  const [stores, setStores] = useState<
-    Database["public"]["Tables"]["stores"]["Row"][]
-  >([]);
+  // Debounce search for better performance
+  const debouncedSearch = useDebounce(searchQuery, 300);
 
-  // Debounce search
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearch(searchQuery);
-    }, 300);
+  const isOwner = profile?.role === "owner";
+  const isReceptionist = profile?.role === "receptionist";
 
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
+  // Determine which store to fetch from
+  const storeIdToFetch = isReceptionist
+    ? profile?.store_id ?? undefined
+    : selectedStore === "all"
+    ? undefined
+    : selectedStore;
 
-  // Redirect if not owner
-  useEffect(() => {
-    if (profile && profile.role !== "owner") {
-      router.push("/dashboard");
-    }
-  }, [profile, router]);
+  // ✅ React Query: Automatic caching, background refetching
+  const { data: products = [], isLoading: loadingProducts } =
+    useProducts(storeIdToFetch);
+  const { data: stores = [] } = useStores();
+  const deleteProductMutation = useDeleteProduct();
 
-  // Fetch stores
-  useEffect(() => {
-    fetchStores();
-  }, []);
-
-  // Fetch products
-  useEffect(() => {
-    fetchProducts();
-  }, [selectedStore]);
-
-  const fetchStores = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("stores")
-        .select("*")
-        .order("name");
-
-      if (error) throw error;
-      setStores(data || []);
-    } catch (error) {
-      console.error("Error fetching stores:", error);
-      toast.error("Failed to load stores");
-    }
-  };
-
-  const fetchProducts = async () => {
-    try {
-      setLoading(true);
-      let query = supabase.from("products").select("*").order("name");
-
-      if (selectedStore !== "all") {
-        query = query.eq("store_id", selectedStore);
-      }
-
-      const { data, error } = await query;
-
-      if (error) throw error;
-      setProducts(data || []);
-    } catch (error) {
-      console.error("Error fetching products:", error);
-      toast.error("Failed to load products");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteClick = (product: Product) => {
-    setProductToDelete(product);
-    setDeleteDialogOpen(true);
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (!productToDelete) return;
-
-    setIsDeleting(true);
-
-    try {
-      // ✅ OPTIMISTIC UPDATE: Remove from UI immediately
-      const deletedProductId = productToDelete.id;
-      setProducts((prev) => prev.filter((p) => p.id !== deletedProductId));
-      setDeleteDialogOpen(false);
-      setProductToDelete(null);
-
-      // Show immediate feedback
-      toast.success("Product deleted");
-
-      // Delete from database in background
-      const { error } = await supabase
-        .from("products")
-        .delete()
-        .eq("id", deletedProductId);
-
-      if (error) {
-        // ❌ Revert on error
-        await fetchProducts();
-        throw error;
-      }
-
-      // ✅ Clear cache for other pages
-      await invalidateProductsCache();
-    } catch (error) {
-      console.error("Error deleting product:", error);
-      toast.error("Failed to delete product");
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
-  // ✅ Memoized filtered products for better performance
+  // Filter products by search query (client-side for instant results)
   const filteredProducts = useMemo(() => {
     return products.filter(
       (product) =>
@@ -186,13 +96,30 @@ export default function ProductsPage() {
     );
   }, [products, debouncedSearch]);
 
+  // Calculate low stock products
   const lowStockProducts = useMemo(() => {
     return filteredProducts.filter((p) => p.stock <= p.low_stock_threshold);
   }, [filteredProducts]);
 
-  if (profile?.role !== "owner") {
-    return null;
-  }
+  const handleDeleteClick = (productId: string) => {
+    setProductToDeleteId(productId);
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!productToDeleteId) return;
+
+    await deleteProductMutation.mutateAsync(productToDeleteId);
+    setDeleteDialogOpen(false);
+    setProductToDeleteId(null);
+  };
+
+  const productToDelete = products.find((p) => p.id === productToDeleteId);
+
+  // Prefetch on hover for instant navigation
+  const handleProductHover = (storeId: string) => {
+    prefetchProducts(storeId);
+  };
 
   return (
     <div className="space-y-6">
@@ -201,10 +128,15 @@ export default function ProductsPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Products</h1>
           <p className="text-gray-500 mt-1">
-            Manage your product inventory across all stores
+            {isReceptionist
+              ? "View and add products to inventory"
+              : "Manage your product inventory across all stores"}
           </p>
         </div>
-        <Button onClick={() => router.push("/dashboard/products/new")}>
+        <Button
+          onClick={() => router.push("/dashboard/products/new")}
+          onMouseEnter={() => prefetchProducts(storeIdToFetch)}
+        >
           <Plus className="h-4 w-4 mr-2" />
           Add Product
         </Button>
@@ -223,25 +155,43 @@ export default function ProductsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              {lowStockProducts.slice(0, 3).map((product) => (
+            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2">
+              {lowStockProducts.map((product) => (
                 <div
                   key={product.id}
-                  className="flex items-center justify-between text-sm"
+                  className="flex items-center justify-between text-sm p-3 bg-white rounded-md border border-yellow-200 hover:border-yellow-300 transition-colors"
                 >
-                  <span className="font-medium text-yellow-900">
-                    {product.name}
-                  </span>
-                  <Badge variant="outline" className="bg-white">
-                    {product.stock} left
-                  </Badge>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-yellow-900 truncate">
+                      {product.name}
+                    </p>
+                    <div className="flex items-center gap-2 mt-1">
+                      {product.sku && (
+                        <span className="text-xs text-yellow-700">
+                          SKU: {product.sku}
+                        </span>
+                      )}
+                      {product.category && (
+                        <Badge
+                          variant="outline"
+                          className="text-xs bg-yellow-100 border-yellow-300"
+                        >
+                          {product.category}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 ml-4">
+                    <div className="text-right">
+                      <p className="text-xs text-yellow-700">Current / Min</p>
+                      <p className="text-sm font-medium text-yellow-900">
+                        {product.stock} / {product.low_stock_threshold}
+                      </p>
+                    </div>
+                    <Badge variant="destructive">{product.stock} left</Badge>
+                  </div>
                 </div>
               ))}
-              {lowStockProducts.length > 3 && (
-                <p className="text-xs text-yellow-700">
-                  +{lowStockProducts.length - 3} more
-                </p>
-              )}
             </div>
           </CardContent>
         </Card>
@@ -262,20 +212,32 @@ export default function ProductsPage() {
               />
             </div>
 
-            {/* Store Filter */}
-            <Select value={selectedStore} onValueChange={setSelectedStore}>
-              <SelectTrigger className="w-full sm:w-[200px]">
-                <SelectValue placeholder="All Stores" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Stores</SelectItem>
-                {stores.map((store) => (
-                  <SelectItem key={store.id} value={store.id}>
-                    {store.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {/* Store Filter - Only show for owners */}
+            {isOwner && (
+              <Select
+                value={selectedStore}
+                onValueChange={(value) => {
+                  setSelectedStore(value);
+                  prefetchProducts(value === "all" ? undefined : value);
+                }}
+              >
+                <SelectTrigger className="w-full sm:w-[200px]">
+                  <SelectValue placeholder="All Stores" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Stores</SelectItem>
+                  {stores.map((store) => (
+                    <SelectItem
+                      key={store.id}
+                      value={store.id}
+                      onMouseEnter={() => handleProductHover(store.id)}
+                    >
+                      {store.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -283,13 +245,20 @@ export default function ProductsPage() {
       {/* Products Table */}
       <Card>
         <CardHeader>
-          <CardTitle>All Products ({filteredProducts.length})</CardTitle>
+          <CardTitle className="flex items-center justify-between">
+            <span>All Products ({filteredProducts.length})</span>
+            {loadingProducts && (
+              <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+            )}
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          {loading ? (
+          {loadingProducts && products.length === 0 ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-              <span className="ml-3 text-gray-600">Loading products...</span>
+              <div className="text-center">
+                <Loader2 className="h-8 w-8 animate-spin text-blue-600 mx-auto mb-3" />
+                <p className="text-gray-600">Loading products...</p>
+              </div>
             </div>
           ) : filteredProducts.length === 0 ? (
             <div className="text-center py-12">
@@ -321,7 +290,9 @@ export default function ProductsPage() {
                     <TableHead className="text-right">Selling Price</TableHead>
                     <TableHead className="text-right">Stock</TableHead>
                     <TableHead className="text-right">Margin</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    {isOwner && (
+                      <TableHead className="text-right">Actions</TableHead>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -378,31 +349,31 @@ export default function ProductsPage() {
                             {margin.toFixed(1)}%
                           </span>
                         </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() =>
-                                router.push(`/dashboard/products/${product.id}`)
-                              }
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => handleDeleteClick(product)}
-                              disabled={isDeleting}
-                            >
-                              {isDeleting ? (
-                                <Loader2 className="h-4 w-4 animate-spin text-red-600" />
-                              ) : (
+                        {isOwner && (
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() =>
+                                  router.push(
+                                    `/dashboard/products/${product.id}`
+                                  )
+                                }
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleDeleteClick(product.id)}
+                                disabled={deleteProductMutation.isPending}
+                              >
                                 <Trash2 className="h-4 w-4 text-red-600" />
-                              )}
-                            </Button>
-                          </div>
-                        </TableCell>
+                              </Button>
+                            </div>
+                          </TableCell>
+                        )}
                       </TableRow>
                     );
                   })}
@@ -414,34 +385,38 @@ export default function ProductsPage() {
       </Card>
 
       {/* Delete Confirmation Dialog */}
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Product</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete `{productToDelete?.name}`? This
-              action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDeleteConfirm}
-              className="bg-red-600 hover:bg-red-700"
-              disabled={isDeleting}
-            >
-              {isDeleting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Deleting...
-                </>
-              ) : (
-                "Delete"
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {isOwner && (
+        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete Product</AlertDialogTitle>
+              <AlertDialogDescription>
+                Are you sure you want to delete &quot;{productToDelete?.name}
+                &quot;? This action cannot be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={deleteProductMutation.isPending}>
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDeleteConfirm}
+                disabled={deleteProductMutation.isPending}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                {deleteProductMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  "Delete"
+                )}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   );
 }

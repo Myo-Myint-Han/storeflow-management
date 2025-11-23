@@ -72,7 +72,7 @@ export default function DashboardLayout({
       name: "Products",
       href: "/dashboard/products",
       icon: Package,
-      roles: ["owner"],
+      roles: ["owner", "receptionist"], // ✅ Now accessible to receptionist
     },
     {
       name: "Sales",
@@ -158,34 +158,6 @@ export default function DashboardLayout({
               </Link>
             ))}
           </nav>
-
-          {/* User profile at bottom */}
-          {/* <div className="p-4 border-t border-gray-200">
-            <div className="flex items-center space-x-3 mb-2">
-              <Avatar>
-                <AvatarFallback className="bg-blue-600 text-white">
-                  {profile.full_name.charAt(0).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">
-                  {profile.full_name}
-                </p>
-                <p className="text-xs text-gray-500 capitalize">
-                  {profile.role}
-                </p>
-              </div>
-            </div>
-            <Button
-              onClick={handleSignOut}
-              variant="outline"
-              size="sm"
-              className="w-full"
-            >
-              <LogOut className="h-4 w-4 mr-2" />
-              Sign Out
-            </Button>
-          </div> */}
         </div>
       </aside>
 

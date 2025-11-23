@@ -1,10 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/AuthProvider";
-import { createClient } from "@/lib/supabase/client";
-import { Database } from "@/types/database.types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,19 +20,33 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft } from "lucide-react";
-
-type Store = Database["public"]["Tables"]["stores"]["Row"];
+import { ArrowLeft, Loader2 } from "lucide-react";
+import { useStores, useCreateProduct } from "@/hooks/useSupabaseQuery";
 
 export default function NewProductPage() {
   const { profile } = useAuth();
   const router = useRouter();
-  const supabase = createClient();
 
-  const [stores, setStores] = useState<Store[]>([]);
-  const [loading, setLoading] = useState(false);
+  const isOwner = profile?.role === "owner";
+  const isReceptionist = profile?.role === "receptionist";
+
+  // ✅ React Query: Cached stores data
+  const { data: stores = [], isLoading: loadingStores } = useStores();
+  const createProductMutation = useCreateProduct();
+
+  // Calculate default store_id based on role
+  const defaultStoreId = useMemo(() => {
+    if (isReceptionist && profile?.store_id) {
+      return profile.store_id;
+    }
+    if (isOwner && stores.length > 0) {
+      return stores[0].id;
+    }
+    return "";
+  }, [isReceptionist, isOwner, profile, stores]);
+
   const [formData, setFormData] = useState({
-    store_id: "",
+    store_id: defaultStoreId,
     name: "",
     description: "",
     sku: "",
@@ -45,55 +57,40 @@ export default function NewProductPage() {
     low_stock_threshold: "10",
   });
 
-  // Redirect if not owner
-  useEffect(() => {
-    if (profile && profile.role !== "owner") {
-      router.push("/dashboard");
-    }
-  }, [profile, router]);
+  // Update store_id when defaultStoreId changes
+  const currentStoreId = formData.store_id || defaultStoreId;
 
-  // Fetch stores
-  useEffect(() => {
-    fetchStores();
-  }, []);
-
-  const fetchStores = async () => {
-    try {
-      const { data, error } = await supabase
-        .from("stores")
-        .select("*")
-        .order("name");
-
-      if (error) throw error;
-      setStores(data || []);
-
-      // Auto-select first store if available
-      if (data && data.length > 0) {
-        setFormData((prev) => ({ ...prev, store_id: data[0].id }));
-      }
-    } catch (error) {
-      console.error("Error fetching stores:", error);
-    }
-  };
-
-  const handleInputChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
-  ) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-  };
+  const handleInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      const { name, value } = e.target;
+      setFormData((prev) => ({ ...prev, [name]: value }));
+    },
+    []
+  );
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+
+    const storeId = currentStoreId;
+
+    // Validation
+    if (
+      !storeId ||
+      !formData.name.trim() ||
+      !formData.buying_price ||
+      !formData.selling_price ||
+      !formData.stock
+    ) {
+      return;
+    }
 
     try {
-      const { error } = await supabase.from("products").insert({
-        store_id: formData.store_id,
-        name: formData.name,
-        description: formData.description || null,
-        sku: formData.sku || null,
-        category: formData.category || null,
+      await createProductMutation.mutateAsync({
+        store_id: storeId,
+        name: formData.name.trim(),
+        description: formData.description.trim() || null,
+        sku: formData.sku.trim() || null,
+        category: formData.category.trim() || null,
         buying_price: parseFloat(formData.buying_price),
         selling_price: parseFloat(formData.selling_price),
         stock: parseInt(formData.stock),
@@ -101,15 +98,9 @@ export default function NewProductPage() {
         created_by: profile?.id,
       });
 
-      if (error) throw error;
-
-      // Redirect to products page
       router.push("/dashboard/products");
     } catch (error) {
-      console.error("Error creating product:", error);
-      alert("Failed to create product");
-    } finally {
-      setLoading(false);
+      console.error("Form submission error:", error);
     }
   };
 
@@ -120,9 +111,24 @@ export default function NewProductPage() {
     return (((selling - buying) / selling) * 100).toFixed(1);
   };
 
-  if (profile?.role !== "owner") {
-    return null;
+  const calculateProfit = () => {
+    const buying = parseFloat(formData.buying_price) || 0;
+    const selling = parseFloat(formData.selling_price) || 0;
+    return (selling - buying).toFixed(2);
+  };
+
+  if (loadingStores) {
+    return (
+      <div className="max-w-2xl mx-auto py-12">
+        <div className="flex items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+          <span className="ml-3 text-gray-600">Loading...</span>
+        </div>
+      </div>
+    );
   }
+
+  const isSubmitting = createProductMutation.isPending;
 
   return (
     <div className="max-w-2xl mx-auto space-y-6">
@@ -154,27 +160,39 @@ export default function NewProductPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Store Selection */}
-            <div className="space-y-2">
-              <Label htmlFor="store_id">Store *</Label>
-              <Select
-                value={formData.store_id}
-                onValueChange={(value) =>
-                  setFormData((prev) => ({ ...prev, store_id: value }))
-                }
-                required
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a store" />
-                </SelectTrigger>
-                <SelectContent>
-                  {stores.map((store) => (
-                    <SelectItem key={store.id} value={store.id}>
-                      {store.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {isOwner ? (
+              <div className="space-y-2">
+                <Label htmlFor="store_id">Store *</Label>
+                <Select
+                  value={currentStoreId}
+                  onValueChange={(value) =>
+                    setFormData((prev) => ({ ...prev, store_id: value }))
+                  }
+                  required
+                  disabled={isSubmitting}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a store" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {stores.map((store) => (
+                      <SelectItem key={store.id} value={store.id}>
+                        {store.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Store</Label>
+                <div className="p-3 bg-gray-50 rounded-md border border-gray-200">
+                  <p className="text-sm font-medium text-gray-700">
+                    Adding to your assigned store
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Product Name */}
             <div className="space-y-2">
@@ -186,6 +204,7 @@ export default function NewProductPage() {
                 onChange={handleInputChange}
                 placeholder="e.g., Wireless Mouse"
                 required
+                disabled={isSubmitting}
               />
             </div>
 
@@ -198,7 +217,8 @@ export default function NewProductPage() {
                 value={formData.description}
                 onChange={handleInputChange}
                 placeholder="Optional product description"
-                className="w-full min-h-[80px] px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={isSubmitting}
+                className="w-full min-h-[80px] px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:bg-gray-50"
               />
             </div>
 
@@ -212,6 +232,7 @@ export default function NewProductPage() {
                   value={formData.sku}
                   onChange={handleInputChange}
                   placeholder="e.g., WM-001"
+                  disabled={isSubmitting}
                 />
               </div>
               <div className="space-y-2">
@@ -222,6 +243,7 @@ export default function NewProductPage() {
                   value={formData.category}
                   onChange={handleInputChange}
                   placeholder="e.g., Electronics"
+                  disabled={isSubmitting}
                 />
               </div>
             </div>
@@ -229,7 +251,7 @@ export default function NewProductPage() {
             {/* Pricing Row */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="buying_price">Buying Price *</Label>
+                <Label htmlFor="buying_price">Buying Price (฿) *</Label>
                 <Input
                   id="buying_price"
                   name="buying_price"
@@ -240,10 +262,11 @@ export default function NewProductPage() {
                   onChange={handleInputChange}
                   placeholder="0.00"
                   required
+                  disabled={isSubmitting}
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="selling_price">Selling Price *</Label>
+                <Label htmlFor="selling_price">Selling Price (฿) *</Label>
                 <Input
                   id="selling_price"
                   name="selling_price"
@@ -254,25 +277,32 @@ export default function NewProductPage() {
                   onChange={handleInputChange}
                   placeholder="0.00"
                   required
+                  disabled={isSubmitting}
                 />
               </div>
             </div>
 
             {/* Margin Display */}
             {formData.buying_price && formData.selling_price && (
-              <div className="p-4 bg-blue-50 rounded-lg">
-                <p className="text-sm text-blue-900">
-                  <span className="font-medium">Profit Margin:</span>{" "}
-                  <span className="text-lg font-bold">
-                    {calculateMargin()}%
-                  </span>
-                  {" (฿"}
-                  {(
-                    parseFloat(formData.selling_price) -
-                    parseFloat(formData.buying_price)
-                  ).toFixed(2)}
-                  {" per unit)"}
-                </p>
+              <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-blue-700 font-medium">
+                      Profit Margin
+                    </p>
+                    <p className="text-2xl font-bold text-blue-900 mt-1">
+                      {calculateMargin()}%
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-blue-700 font-medium">
+                      Profit per Unit
+                    </p>
+                    <p className="text-2xl font-bold text-green-600 mt-1">
+                      ฿{calculateProfit()}
+                    </p>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -289,6 +319,7 @@ export default function NewProductPage() {
                   onChange={handleInputChange}
                   placeholder="0"
                   required
+                  disabled={isSubmitting}
                 />
               </div>
               <div className="space-y-2">
@@ -301,23 +332,31 @@ export default function NewProductPage() {
                   value={formData.low_stock_threshold}
                   onChange={handleInputChange}
                   placeholder="10"
+                  disabled={isSubmitting}
                 />
               </div>
             </div>
 
             {/* Submit Buttons */}
-            <div className="flex gap-4">
+            <div className="flex gap-4 pt-4">
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => router.push("/dashboard/products")}
-                disabled={loading}
+                disabled={isSubmitting}
                 className="flex-1"
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={loading} className="flex-1">
-                {loading ? "Adding Product..." : "Add Product"}
+              <Button type="submit" disabled={isSubmitting} className="flex-1">
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Adding Product...
+                  </>
+                ) : (
+                  "Add Product"
+                )}
               </Button>
             </div>
           </form>

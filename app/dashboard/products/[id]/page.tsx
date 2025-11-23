@@ -22,10 +22,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2, AlertTriangle } from "lucide-react";
 
 type Store = Database["public"]["Tables"]["stores"]["Row"];
-
 
 export default function EditProductPage() {
   const { profile } = useAuth();
@@ -49,19 +48,22 @@ export default function EditProductPage() {
   });
 
   const productId = params.id as string;
+  const isOwner = profile?.role === "owner";
 
   // Redirect if not owner
   useEffect(() => {
     if (profile && profile.role !== "owner") {
-      router.push("/dashboard");
+      router.push("/dashboard/products");
     }
   }, [profile, router]);
 
   // Fetch stores and product
   useEffect(() => {
-    fetchStores();
-    fetchProduct();
-  }, [productId]);
+    if (isOwner) {
+      fetchStores();
+      fetchProduct();
+    }
+  }, [productId, isOwner]);
 
   const fetchStores = async () => {
     try {
@@ -155,8 +157,29 @@ export default function EditProductPage() {
     return (((selling - buying) / selling) * 100).toFixed(1);
   };
 
-  if (profile?.role !== "owner") {
-    return null;
+  // Show access denied for non-owners
+  if (!isOwner) {
+    return (
+      <div className="max-w-2xl mx-auto py-12">
+        <Card className="border-red-200 bg-red-50">
+          <CardHeader>
+            <CardTitle className="flex items-center text-red-800">
+              <AlertTriangle className="h-5 w-5 mr-2" />
+              Access Denied
+            </CardTitle>
+            <CardDescription className="text-red-700">
+              Only store owners can edit products.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button onClick={() => router.push("/dashboard/products")}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Products
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   if (loading) {
