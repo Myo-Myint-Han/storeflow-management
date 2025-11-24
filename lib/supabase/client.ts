@@ -1,7 +1,7 @@
 import { createBrowserClient } from "@supabase/ssr";
 
 // ⚡ Add global fetch timeout
-const createFetchWithTimeout = (timeoutMs: number = 5000) => {
+const createFetchWithTimeout = (timeoutMs: number = 15000) => {
   return async (url: RequestInfo | URL, init?: RequestInit) => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
