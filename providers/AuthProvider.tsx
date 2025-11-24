@@ -11,6 +11,7 @@ type AuthContextType = {
   user: User | null;
   profile: Profile | null;
   loading: boolean;
+  isAuthenticated: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
 };
@@ -20,8 +21,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
-  // ⚡ KEY FIX: Start with loading=FALSE so page loads immediately
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const supabaseRef = useRef(createClient());
   const mountedRef = useRef(true);
 
@@ -29,12 +29,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     mountedRef.current = true;
     const supabase = supabaseRef.current;
 
-    // ⚡ Load auth in background WITHOUT blocking
     const initAuth = async () => {
       try {
-        console.log("🔵 Auth: Starting background check...");
+        console.log("🔵 Auth: Loading session...");
 
-        // Get session (let it take as long as needed)
         const {
           data: { session },
           error,
@@ -42,6 +40,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (error) {
           console.error("❌ Auth: Session error:", error);
+          setLoading(false);
           return;
         }
 
@@ -50,7 +49,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log("✅ Auth: Session loaded", !!session);
         setUser(session?.user ?? null);
 
-        // Fetch profile if user exists
         if (session?.user) {
           try {
             const { data, error: profileError } = await supabase
@@ -61,6 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             if (profileError) {
               console.error("❌ Auth: Profile error:", profileError);
+              setLoading(false);
               return;
             }
 
@@ -74,13 +73,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch (error) {
         console.error("❌ Auth: Init failed:", error);
+      } finally {
+        if (mountedRef.current) {
+          setLoading(false);
+          console.log("✅ Auth: Ready");
+        }
       }
     };
 
-    // Start in background - doesn't block rendering
     initAuth();
 
-    // Auth state subscription
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -154,11 +156,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  return (
-    <AuthContext.Provider value={{ user, profile, loading, signIn, signOut }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  const value = {
+    user,
+    profile,
+    loading,
+    isAuthenticated: !!user && !!profile,
+    signIn,
+    signOut,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
