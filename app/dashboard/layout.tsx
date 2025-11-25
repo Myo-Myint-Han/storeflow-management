@@ -23,7 +23,6 @@ import {
   LogOut,
   Menu,
   X,
-  Settings,
 } from "lucide-react";
 
 export default function DashboardLayout({
@@ -94,12 +93,6 @@ export default function DashboardLayout({
       name: "Stores",
       href: "/dashboard/stores",
       icon: Store,
-      roles: ["owner"],
-    },
-    {
-      name: "Settings",
-      href: "/dashboard/settings",
-      icon: Settings,
       roles: ["owner"],
     },
   ];

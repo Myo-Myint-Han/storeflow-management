@@ -12,6 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import {
   DollarSign,
   TrendingUp,
@@ -19,23 +20,27 @@ import {
   AlertTriangle,
   Calendar,
   ArrowUpRight,
+  Package,
+  Clock,
+  CreditCard,
 } from "lucide-react";
-import {
-  format,
-  subDays,
-  startOfMonth,
-  endOfMonth,
-  eachDayOfInterval,
-} from "date-fns";
-// ⚡ OPTIMIZATION: Lazy load charts (reduces initial bundle by ~150KB)
+import { subDays, startOfMonth, endOfMonth } from "date-fns";
+// ⚡ OPTIMIZATION: Lazy load charts
 import dynamic from "next/dynamic";
 
-// Lazy load chart components
-const LineChart = dynamic(
-  () => import("recharts").then((mod) => mod.LineChart),
-  { ssr: false }
-);
-const Line = dynamic(() => import("recharts").then((mod) => mod.Line), {
+const BarChart = dynamic(() => import("recharts").then((mod) => mod.BarChart), {
+  ssr: false,
+});
+const Bar = dynamic(() => import("recharts").then((mod) => mod.Bar), {
+  ssr: false,
+});
+const PieChart = dynamic(() => import("recharts").then((mod) => mod.PieChart), {
+  ssr: false,
+});
+const Pie = dynamic(() => import("recharts").then((mod) => mod.Pie), {
+  ssr: false,
+});
+const Cell = dynamic(() => import("recharts").then((mod) => mod.Cell), {
   ssr: false,
 });
 const XAxis = dynamic(() => import("recharts").then((mod) => mod.XAxis), {
@@ -49,9 +54,6 @@ const CartesianGrid = dynamic(
   { ssr: false }
 );
 const Tooltip = dynamic(() => import("recharts").then((mod) => mod.Tooltip), {
-  ssr: false,
-});
-const Legend = dynamic(() => import("recharts").then((mod) => mod.Legend), {
   ssr: false,
 });
 const ResponsiveContainer = dynamic(
@@ -78,11 +80,11 @@ type Sale = {
   sale_items: SaleItem[];
 };
 
-type ChartData = {
-  date: string;
-  revenue: number;
-  profit: number;
-  orders: number;
+type Product = {
+  id: string;
+  name: string;
+  stock: number;
+  low_stock_threshold: number;
 };
 
 export default function DashboardPage() {
@@ -104,11 +106,24 @@ export default function DashboardPage() {
     totalOrders: 0,
     avgOrderValue: 0,
     totalProducts: 0,
+    itemsInStock: 0,
     lowStockCount: 0,
   });
 
   // Charts data
-  const [salesTrendData, setSalesTrendData] = useState<ChartData[]>([]);
+  const [peakHoursData, setPeakHoursData] = useState<
+    Array<{ hour: string; sales: number }>
+  >([]);
+  const [topProductsData, setTopProductsData] = useState<
+    Array<{ name: string; quantity: number; revenue: number }>
+  >([]);
+  const [topCategoriesData, setTopCategoriesData] = useState<
+    Array<{ name: string; value: number }>
+  >([]);
+  const [paymentMethodsData, setPaymentMethodsData] = useState<
+    Array<{ name: string; value: number }>
+  >([]);
+  const [lowStockProducts, setLowStockProducts] = useState<Product[]>([]);
 
   // Redirect receptionist
   useEffect(() => {
@@ -148,33 +163,6 @@ export default function DashboardPage() {
     }
   }, [timeRange]);
 
-  const generateSalesTrend = useCallback(
-    (sales: Sale[], start: Date, end: Date) => {
-      const days = eachDayOfInterval({ start, end });
-
-      const trend = days.map((day) => {
-        const daySales = sales.filter((s) => {
-          const saleDate = new Date(s.created_at);
-          return saleDate.toDateString() === day.toDateString();
-        });
-
-        const revenue = daySales.reduce((sum, s) => sum + s.total_amount, 0);
-        const profit = daySales.reduce((sum, s) => sum + s.profit, 0);
-        const orders = daySales.length;
-
-        return {
-          date: format(day, "MMM dd"),
-          revenue: Number(revenue.toFixed(2)),
-          profit: Number(profit.toFixed(2)),
-          orders,
-        };
-      });
-
-      setSalesTrendData(trend);
-    },
-    []
-  );
-
   const fetchDashboardData = useCallback(async () => {
     try {
       setLoading(true);
@@ -210,18 +198,20 @@ export default function DashboardPage() {
           .lte("created_at", end.toISOString())
           .order("created_at", { ascending: true }),
 
-        supabase.from("products").select("id", { count: "exact", head: true }),
+        supabase.from("products").select("id, stock"),
 
         supabase
           .from("products")
-          .select("id, name, sku, stock, low_stock_threshold")
-          .lte("stock", supabase.rpc("low_stock_threshold"))
+          .select("id, name, stock, low_stock_threshold")
           .order("stock", { ascending: true })
-          .limit(5),
+          .limit(10),
       ]);
 
       const salesData = (salesResult.data || []) as unknown as Sale[];
+      const allProducts = productsResult.data || [];
+      const lowStockData = (lowStockResult.data || []) as Product[];
 
+      // Calculate stats
       const todaySales = salesData
         .filter((s) => new Date(s.created_at) >= today)
         .reduce((sum, s) => sum + s.total_amount, 0);
@@ -235,8 +225,11 @@ export default function DashboardPage() {
       const totalOrders = salesData.length;
       const avgOrderValue = totalOrders > 0 ? periodSales / totalOrders : 0;
 
-      const totalProducts = productsResult.count || 0;
-      const lowStock = lowStockResult.data || [];
+      const totalProducts = allProducts.length;
+      const itemsInStock = allProducts.reduce((sum, p) => sum + p.stock, 0);
+      const lowStock = lowStockData.filter(
+        (p) => p.stock <= p.low_stock_threshold
+      );
 
       setStats({
         todaySales,
@@ -246,17 +239,83 @@ export default function DashboardPage() {
         totalOrders,
         avgOrderValue,
         totalProducts,
+        itemsInStock,
         lowStockCount: lowStock.length,
       });
 
-      // Generate charts data
-      generateSalesTrend(salesData, start, end);
+      // Peak Hours Analysis
+      const hourlyData: { [key: string]: number } = {};
+      salesData.forEach((sale) => {
+        const hour = new Date(sale.created_at).getHours();
+        const hourLabel = `${hour}:00`;
+        hourlyData[hourLabel] =
+          (hourlyData[hourLabel] || 0) + sale.total_amount;
+      });
+      const peakHours = Object.entries(hourlyData)
+        .map(([hour, sales]) => ({ hour, sales }))
+        .sort((a, b) => parseInt(a.hour) - parseInt(b.hour));
+      setPeakHoursData(peakHours);
+
+      // Top Products
+      const productStats: {
+        [key: string]: { name: string; quantity: number; revenue: number };
+      } = {};
+      salesData.forEach((sale) => {
+        sale.sale_items.forEach((item) => {
+          const productName = item.products?.name || "Unknown";
+          if (!productStats[productName]) {
+            productStats[productName] = {
+              name: productName,
+              quantity: 0,
+              revenue: 0,
+            };
+          }
+          productStats[productName].quantity += item.quantity;
+          productStats[productName].revenue += item.subtotal;
+        });
+      });
+      const topProducts = Object.values(productStats)
+        .sort((a, b) => b.revenue - a.revenue)
+        .slice(0, 5);
+      setTopProductsData(topProducts);
+
+      // Top Categories
+      const categoryStats: { [key: string]: number } = {};
+      salesData.forEach((sale) => {
+        sale.sale_items.forEach((item) => {
+          const category = item.products?.category || "Uncategorized";
+          categoryStats[category] =
+            (categoryStats[category] || 0) + item.subtotal;
+        });
+      });
+      const topCategories = Object.entries(categoryStats)
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 5);
+      setTopCategoriesData(topCategories);
+
+      // Payment Methods
+      const paymentStats: { [key: string]: number } = {};
+      salesData.forEach((sale) => {
+        const method = sale.payment_method || "cash";
+        paymentStats[method] = (paymentStats[method] || 0) + 1;
+      });
+      const paymentMethods = Object.entries(paymentStats).map(
+        ([name, value]) => ({
+          name: name.charAt(0).toUpperCase() + name.slice(1),
+          value,
+        })
+      );
+      setPaymentMethodsData(paymentMethods);
+
+      // Low Stock Products
+      setLowStockProducts(lowStock);
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
     } finally {
       setLoading(false);
     }
-  }, [timeRange, supabase, getDateRange, generateSalesTrend]);
+  }, [supabase, getDateRange]);
 
   useEffect(() => {
     if (profile?.role === "owner") {
@@ -276,6 +335,7 @@ export default function DashboardPage() {
   }
 
   const { label: periodLabel } = getDateRange();
+  const COLORS = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6"];
 
   return (
     <div className="space-y-6">
@@ -362,62 +422,234 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-gray-600 flex items-center justify-between">
-              Low Stock Alert
-              <AlertTriangle className="h-4 w-4 text-red-600" />
+              Items in Stock
+              <Package className="h-4 w-4 text-indigo-600" />
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-gray-900">
-              {stats.lowStockCount}
+              {stats.itemsInStock}
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              {stats.totalProducts} total products
+              {stats.totalProducts} products
             </p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Sales Trend Chart */}
+      {/* Charts Grid */}
+      <div className="grid gap-6 md:grid-cols-2">
+        {/* Peak Sales Hours */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Clock className="h-5 w-5 text-blue-600" />
+              Peak Sales Hours
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {peakHoursData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={peakHoursData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis
+                    dataKey="hour"
+                    stroke="#888"
+                    style={{ fontSize: "12px" }}
+                  />
+                  <YAxis stroke="#888" style={{ fontSize: "12px" }} />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#fff",
+                      border: "1px solid #e5e7eb",
+                      borderRadius: "8px",
+                    }}
+                    formatter={(value) => [
+                      `฿${Number(value).toFixed(2)}`,
+                      "Sales",
+                    ]}
+                  />
+                  <Bar dataKey="sales" fill="#3b82f6" radius={[8, 8, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="text-center py-12 text-gray-400">
+                <Clock className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p>No sales data available</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Top 5 Products */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-green-600" />
+              Top 5 Products
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {topProductsData.length > 0 ? (
+              <div className="space-y-3">
+                {topProductsData.map((product, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-gray-900 truncate">
+                        {product.name}
+                      </p>
+                      <p className="text-sm text-gray-500">
+                        {product.quantity} units sold
+                      </p>
+                    </div>
+                    <div className="text-right ml-4">
+                      <p className="font-bold text-green-600">
+                        ฿{product.revenue.toFixed(2)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 text-gray-400">
+                <Package className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p>No sales data available</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Top 5 Categories */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ShoppingCart className="h-5 w-5 text-purple-600" />
+              Top 5 Categories
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {topCategoriesData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={topCategoriesData}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) =>
+                      `${name} ${((percent || 0) * 100).toFixed(0)}%`
+                    }
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {topCategoriesData.map((entry, index) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={COLORS[index % COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    formatter={(value) => [
+                      `฿${Number(value).toFixed(2)}`,
+                      "Revenue",
+                    ]}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="text-center py-12 text-gray-400">
+                <ShoppingCart className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p>No category data available</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Payment Methods */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CreditCard className="h-5 w-5 text-indigo-600" />
+              Payment Methods
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {paymentMethodsData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={paymentMethodsData}
+                    cx="50%"
+                    cy="50%"
+                    labelLine={false}
+                    label={({ name, percent }) =>
+                      `${name} ${((percent || 0) * 100).toFixed(0)}%`
+                    }
+                    outerRadius={80}
+                    fill="#8884d8"
+                    dataKey="value"
+                  >
+                    {paymentMethodsData.map((entry, index) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={COLORS[index % COLORS.length]}
+                      />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="text-center py-12 text-gray-400">
+                <CreditCard className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                <p>No payment data available</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Low Stock Items */}
       <Card>
         <CardHeader>
-          <CardTitle>Sales Trend</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <AlertTriangle className="h-5 w-5 text-red-600" />
+            Low Stock Items ({stats.lowStockCount})
+          </CardTitle>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={salesTrendData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis
-                dataKey="date"
-                stroke="#888"
-                style={{ fontSize: "12px" }}
-              />
-              <YAxis stroke="#888" style={{ fontSize: "12px" }} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "#fff",
-                  border: "1px solid #e5e7eb",
-                  borderRadius: "8px",
-                }}
-              />
-              <Legend />
-              <Line
-                type="monotone"
-                dataKey="revenue"
-                stroke="#3b82f6"
-                strokeWidth={2}
-                name="Revenue (฿)"
-                dot={{ fill: "#3b82f6" }}
-              />
-              <Line
-                type="monotone"
-                dataKey="profit"
-                stroke="#10b981"
-                strokeWidth={2}
-                name="Profit (฿)"
-                dot={{ fill: "#10b981" }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+          {lowStockProducts.length > 0 ? (
+            <div className="space-y-2">
+              {lowStockProducts.map((product) => (
+                <div
+                  key={product.id}
+                  className="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-200"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium text-gray-900 truncate">
+                      {product.name}
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      Threshold: {product.low_stock_threshold}
+                    </p>
+                  </div>
+                  <Badge variant="destructive" className="ml-4">
+                    {product.stock} left
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-400">
+              <Package className="h-12 w-12 mx-auto mb-3 opacity-50" />
+              <p>All products are well stocked!</p>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>
