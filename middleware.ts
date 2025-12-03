@@ -1,30 +1,81 @@
 import { type NextRequest, NextResponse } from "next/server";
-import { updateSession } from "@/lib/supabase/middleware";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
+
+// 🚀 OPTIMIZED: Only protect specific routes
+const PROTECTED_ROUTES = ["/dashboard"];
+const AUTH_ROUTES = ["/login"];
 
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // 🚀 Skip middleware for non-protected routes
+  const needsAuth = PROTECTED_ROUTES.some((route) =>
+    pathname.startsWith(route)
+  );
+  const isAuthRoute = AUTH_ROUTES.some((route) => pathname.startsWith(route));
+
+  if (!needsAuth && !isAuthRoute) {
+    return NextResponse.next();
+  }
+
+  let response = NextResponse.next({
+    request: {
+      headers: request.headers,
+    },
+  });
+
   try {
-    // ⚡ Add timeout to prevent infinite hanging
-    const timeoutPromise = new Promise<NextResponse>((_, reject) => {
-      setTimeout(() => reject(new Error("Middleware timeout")), 8000);
-    });
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          get(name: string) {
+            return request.cookies.get(name)?.value;
+          },
+          set(name: string, value: string, options: CookieOptions) {
+            request.cookies.set({ name, value, ...options });
+            response = NextResponse.next({
+              request: {
+                headers: request.headers,
+              },
+            });
+            response.cookies.set({ name, value, ...options });
+          },
+          remove(name: string, options: CookieOptions) {
+            request.cookies.set({ name, value: "", ...options });
+            response = NextResponse.next({
+              request: {
+                headers: request.headers,
+              },
+            });
+            response.cookies.set({ name, value: "", ...options });
+          },
+        },
+      }
+    );
 
-    const sessionPromise = updateSession(request);
+    // 🚀 CRITICAL FIX: Only check session, don't fetch user
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
 
-    // Race between timeout and session update
-    return await Promise.race([sessionPromise, timeoutPromise]);
+    // Redirect logic
+    if (needsAuth && !session) {
+      return NextResponse.redirect(new URL("/login", request.url));
+    }
+
+    if (isAuthRoute && session) {
+      return NextResponse.redirect(new URL("/dashboard", request.url));
+    }
+
+    return response;
   } catch (error) {
     console.error("Middleware error:", error);
-    // ⚡ On error, pass through without blocking
-    return NextResponse.next({
-      request: {
-        headers: request.headers,
-      },
-    });
+    return response;
   }
 }
 
 export const config = {
-  matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|api|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
-  ],
+  matcher: ["/dashboard/:path*", "/login"],
 };

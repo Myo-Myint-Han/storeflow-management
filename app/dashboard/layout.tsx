@@ -30,34 +30,22 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { user, profile, loading, signOut } = useAuth();
+  const { user, profile, signOut } = useAuth();
   const router = useRouter();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  // ⚡ Add state to track if we've checked auth
-  const [authChecked, setAuthChecked] = useState(false);
 
+  // 🚀 CRITICAL FIX: Remove artificial delay, redirect immediately if no user
   useEffect(() => {
-    // ⚡ Wait a moment for auth to load (non-blocking)
-    const checkAuth = setTimeout(() => {
-      setAuthChecked(true);
-
-      // Only redirect if definitely not logged in
-      if (!loading && !user) {
-        console.log("🔴 No user found, redirecting to login...");
-        router.push("/login");
-      }
-    }, 1000); // Give auth 1 second to load
-
-    return () => clearTimeout(checkAuth);
-  }, [user, loading, router]);
+    if (!user) {
+      router.push("/login");
+    }
+  }, [user, router]);
 
   const handleSignOut = async () => {
     await signOut();
     router.push("/login");
   };
 
-  // ⚡ Show layout immediately (don't wait for auth)
-  // If not logged in, useEffect will redirect
   const navigation = [
     {
       name: "Dashboard",
@@ -100,6 +88,10 @@ export default function DashboardLayout({
   const filteredNavigation = profile
     ? navigation.filter((item) => item.roles.includes(profile.role))
     : navigation;
+
+  // 🚀 CRITICAL: Show loading skeleton while profile loads
+  // Don't block rendering
+  const showSkeleton = !profile;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -164,7 +156,10 @@ export default function DashboardLayout({
           </button>
 
           <div className="flex items-center space-x-4 ml-auto">
-            {profile ? (
+            {showSkeleton ? (
+              // 🚀 Show skeleton while loading
+              <div className="h-8 w-8 bg-gray-200 rounded-full animate-pulse" />
+            ) : (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" size="sm">
@@ -189,13 +184,11 @@ export default function DashboardLayout({
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-            ) : (
-              <div className="h-8 w-8 bg-gray-200 rounded-full animate-pulse" />
             )}
           </div>
         </header>
 
-        {/* Page content */}
+        {/* Page content - 🚀 ALWAYS RENDER, even while loading */}
         <main className="p-4 lg:p-8">{children}</main>
       </div>
     </div>

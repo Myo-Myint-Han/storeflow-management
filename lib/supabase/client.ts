@@ -1,7 +1,7 @@
 import { createBrowserClient } from "@supabase/ssr";
 
-// ⚡ Add global fetch timeout
-const createFetchWithTimeout = (timeoutMs: number = 15000) => {
+// 🚀 OPTIMIZED: Longer timeout for international connections
+const createFetchWithTimeout = (timeoutMs: number = 10000) => {
   return async (url: RequestInfo | URL, init?: RequestInit) => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -33,15 +33,16 @@ export function createClient() {
 
   return createBrowserClient(supabaseUrl, supabaseKey, {
     global: {
-      // ⚡ Add custom fetch with timeout
-      fetch: createFetchWithTimeout(5000),
+      // 🚀 OPTIMIZED: 10 second timeout (better for Thailand -> US latency)
+      fetch: createFetchWithTimeout(10000),
     },
     auth: {
-      // ⚡ Reduce timeouts
       flowType: "pkce",
-      detectSessionInUrl: false, // Faster initial load
+      detectSessionInUrl: false,
       persistSession: true,
       autoRefreshToken: true,
+      // 🚀 ADD: Store session in localStorage for faster access
+      storage: typeof window !== "undefined" ? window.localStorage : undefined,
     },
   });
 }

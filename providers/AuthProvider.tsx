@@ -21,7 +21,8 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState(true);
+  // 🚀 CRITICAL FIX: Start with loading=false to render immediately
+  const [loading, setLoading] = useState(false);
   const supabaseRef = useRef(createClient());
   const mountedRef = useRef(true);
 
@@ -31,81 +32,75 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const initAuth = async () => {
       try {
-        console.log("🔵 Auth: Loading session...");
-
+        // 🚀 Don't block UI - load in background
         const {
           data: { session },
           error,
         } = await supabase.auth.getSession();
 
-        if (error) {
-          console.error("❌ Auth: Session error:", error);
-          setLoading(false);
+        if (error || !session) {
           return;
         }
 
         if (!mountedRef.current) return;
 
-        console.log("✅ Auth: Session loaded", !!session);
-        setUser(session?.user ?? null);
+        setUser(session.user);
 
-        if (session?.user) {
-          try {
-            const { data, error: profileError } = await supabase
-              .from("profiles")
-              .select("*")
-              .eq("id", session.user.id)
-              .single();
+        // 🚀 Load profile in background (non-blocking)
+        if (session.user) {
+          const fetchProfile = async () => {
+            try {
+              const { data } = await supabase
+                .from("profiles")
+                .select("*")
+                .eq("id", session.user.id)
+                .single();
 
-            if (profileError) {
-              console.error("❌ Auth: Profile error:", profileError);
-              setLoading(false);
-              return;
+              if (mountedRef.current && data) {
+                setProfile(data);
+              }
+            } catch (error) {
+              console.error("Profile fetch failed:", error);
             }
+          };
 
-            if (mountedRef.current) {
-              console.log("✅ Auth: Profile loaded");
-              setProfile(data);
-            }
-          } catch (error) {
-            console.error("❌ Auth: Profile fetch failed:", error);
-          }
+          fetchProfile();
         }
       } catch (error) {
-        console.error("❌ Auth: Init failed:", error);
-      } finally {
-        if (mountedRef.current) {
-          setLoading(false);
-          console.log("✅ Auth: Ready");
-        }
+        console.error("Auth init failed:", error);
       }
     };
 
+    // 🚀 Run in background, don't await
     initAuth();
 
+    // Auth state listener
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("🔵 Auth: State changed:", event);
-
       if (!mountedRef.current) return;
 
       setUser(session?.user ?? null);
 
       if (session?.user) {
-        try {
-          const { data } = await supabase
-            .from("profiles")
-            .select("*")
-            .eq("id", session.user.id)
-            .single();
+        // Load profile in background
+        const fetchProfile = async () => {
+          try {
+            const { data } = await supabase
+              .from("profiles")
+              .select("*")
+              .eq("id", session.user.id)
+              .single();
 
-          if (mountedRef.current) {
-            setProfile(data);
+            if (mountedRef.current && data) {
+              setProfile(data);
+            }
+          } catch (error) {
+            console.error("Profile update failed:", error);
           }
-        } catch (error) {
-          console.error("❌ Auth: Profile update failed:", error);
-        }
+        };
+
+        fetchProfile();
       } else {
         setProfile(null);
       }
@@ -130,6 +125,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (error) throw error;
 
       if (data.user) {
+        setUser(data.user);
+
         const { data: profileData } = await supabase
           .from("profiles")
           .select("*")
@@ -165,6 +162,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signOut,
   };
 
+  // 🚀 CRITICAL: Always render children immediately
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
