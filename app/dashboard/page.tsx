@@ -24,7 +24,13 @@ import {
   Clock,
   CreditCard,
 } from "lucide-react";
-import { subDays, startOfMonth, endOfMonth } from "date-fns";
+import {
+  subDays,
+  startOfMonth,
+  endOfMonth,
+  startOfDay,
+  endOfDay,
+} from "date-fns";
 // ⚡ OPTIMIZATION: Lazy load charts
 import dynamic from "next/dynamic";
 
@@ -93,8 +99,9 @@ export default function DashboardPage() {
   const supabase = createClient();
 
   const [loading, setLoading] = useState(true);
-  const [timeRange, setTimeRange] = useState<"7days" | "30days" | "thisMonth">(
-    "7days"
+  // ✅ UPDATED: Changed from "7days" | "30days" | "thisMonth" to "today" | "7days" | "thisMonth"
+  const [timeRange, setTimeRange] = useState<"today" | "7days" | "thisMonth">(
+    "today"
   );
 
   // Stats
@@ -132,33 +139,34 @@ export default function DashboardPage() {
     }
   }, [profile, router]);
 
+  // ✅ UPDATED: New getDateRange function with Today, Last 7 Days, This Month
   const getDateRange = useCallback(() => {
-    const today = new Date();
+    const now = new Date();
 
     switch (timeRange) {
+      case "today":
+        return {
+          start: startOfDay(now),
+          end: endOfDay(now),
+          label: "Today",
+        };
       case "7days":
         return {
-          start: subDays(today, 6),
-          end: today,
+          start: subDays(now, 6), // Last 6 days + today = 7 days
+          end: now,
           label: "Last 7 Days",
-        };
-      case "30days":
-        return {
-          start: subDays(today, 29),
-          end: today,
-          label: "Last 30 Days",
         };
       case "thisMonth":
         return {
-          start: startOfMonth(today),
-          end: endOfMonth(today),
+          start: startOfMonth(now),
+          end: endOfMonth(now),
           label: "This Month",
         };
       default:
         return {
-          start: subDays(today, 6),
-          end: today,
-          label: "Last 7 Days",
+          start: startOfDay(now),
+          end: endOfDay(now),
+          label: "Today",
         };
     }
   }, [timeRange]);
@@ -211,7 +219,8 @@ export default function DashboardPage() {
       const allProducts = productsResult.data || [];
       const lowStockData = (lowStockResult.data || []) as Product[];
 
-      // Calculate stats
+      // ✅ UPDATED: Calculate stats based on selected period
+      // Today's sales (always calculated for the stats card)
       const todaySales = salesData
         .filter((s) => new Date(s.created_at) >= today)
         .reduce((sum, s) => sum + s.total_amount, 0);
@@ -220,6 +229,7 @@ export default function DashboardPage() {
         .filter((s) => new Date(s.created_at) >= today)
         .reduce((sum, s) => sum + s.profit, 0);
 
+      // Period sales (based on selected timeRange)
       const periodSales = salesData.reduce((sum, s) => sum + s.total_amount, 0);
       const periodProfit = salesData.reduce((sum, s) => sum + s.profit, 0);
       const totalOrders = salesData.length;
@@ -347,9 +357,10 @@ export default function DashboardPage() {
           </h1>
           <p className="text-gray-500 mt-1">Track your business performance</p>
         </div>
+        {/* ✅ UPDATED: New time range options */}
         <Select
           value={timeRange}
-          onValueChange={(value: "7days" | "30days" | "thisMonth") =>
+          onValueChange={(value: "today" | "7days" | "thisMonth") =>
             setTimeRange(value)
           }
         >
@@ -358,8 +369,8 @@ export default function DashboardPage() {
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value="today">Today</SelectItem>
             <SelectItem value="7days">Last 7 Days</SelectItem>
-            <SelectItem value="30days">Last 30 Days</SelectItem>
             <SelectItem value="thisMonth">This Month</SelectItem>
           </SelectContent>
         </Select>
@@ -387,6 +398,7 @@ export default function DashboardPage() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm font-medium text-gray-600 flex items-center justify-between">
+              {/* ✅ UPDATED: Dynamic label based on selected period */}
               {periodLabel} Sales
               <TrendingUp className="h-4 w-4 text-green-600" />
             </CardTitle>
