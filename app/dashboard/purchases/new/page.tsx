@@ -194,7 +194,7 @@ export default function NewPurchasePage() {
               </Select>
             </div>
 
-            {/* Product Selection */}
+            {/* Product Selection - FIXED */}
             <div className="space-y-2">
               <Label htmlFor="product_id">Product *</Label>
               <Select
@@ -208,12 +208,24 @@ export default function NewPurchasePage() {
                 <SelectTrigger>
                   <SelectValue placeholder="Select a product" />
                 </SelectTrigger>
-                <SelectContent>
-                  {products.map((product) => (
-                    <SelectItem key={product.id} value={product.id}>
-                      {product.name} (Current stock: {product.stock})
-                    </SelectItem>
-                  ))}
+                <SelectContent
+                  className="max-h-[200px] overflow-y-auto"
+                  position="popper"
+                  sideOffset={5}
+                >
+                  {products.length === 0 ? (
+                    <div className="p-2 text-sm text-gray-500 text-center">
+                      {formData.store_id
+                        ? "No products available"
+                        : "Select a store first"}
+                    </div>
+                  ) : (
+                    products.map((product) => (
+                      <SelectItem key={product.id} value={product.id}>
+                        {product.name} (Stock: {product.stock})
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>
