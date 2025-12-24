@@ -120,6 +120,50 @@ export interface Database {
           updated_at?: string;
         };
       };
+      customers: {
+        Row: {
+          id: string;
+          store_id: string;
+          name: string;
+          phone: string | null;
+          email: string | null;
+          customer_type: "regular" | "vip" | "wholesale";
+          discount_type: "percentage" | "fixed";
+          discount_percentage: number;
+          discount_fixed_amount: number;
+          notes: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          store_id: string;
+          name: string;
+          phone?: string | null;
+          email?: string | null;
+          customer_type?: "regular" | "vip" | "wholesale";
+          discount_type?: "percentage" | "fixed";
+          discount_percentage?: number;
+          discount_fixed_amount?: number;
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          store_id?: string;
+          name?: string;
+          phone?: string | null;
+          email?: string | null;
+          customer_type?: "regular" | "vip" | "wholesale";
+          discount_type?: "percentage" | "fixed";
+          discount_percentage?: number;
+          discount_fixed_amount?: number;
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
       sales: {
         Row: {
           id: string;
@@ -128,6 +172,9 @@ export interface Database {
           profit: number;
           payment_method: "cash" | "card" | "other" | null;
           sold_by: string | null;
+          customer_id: string | null;
+          discount_amount: number;
+          original_amount: number | null;
           created_at: string;
         };
         Insert: {
@@ -137,6 +184,9 @@ export interface Database {
           profit: number;
           payment_method?: "cash" | "card" | "other" | null;
           sold_by?: string | null;
+          customer_id?: string | null;
+          discount_amount?: number;
+          original_amount?: number | null;
           created_at?: string;
         };
         Update: {
@@ -146,6 +196,9 @@ export interface Database {
           profit?: number;
           payment_method?: "cash" | "card" | "other" | null;
           sold_by?: string | null;
+          customer_id?: string | null;
+          discount_amount?: number;
+          original_amount?: number | null;
           created_at?: string;
         };
       };

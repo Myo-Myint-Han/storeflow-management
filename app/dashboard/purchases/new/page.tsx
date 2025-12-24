@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/providers/AuthProvider";
 import { createClient } from "@/lib/supabase/client";
@@ -51,17 +51,7 @@ export default function NewPurchasePage() {
     }
   }, [profile, router]);
 
-  useEffect(() => {
-    fetchStores();
-  }, []);
-
-  useEffect(() => {
-    if (formData.store_id) {
-      fetchProducts(formData.store_id);
-    }
-  }, [formData.store_id]);
-
-  const fetchStores = async () => {
+  const fetchStores = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from("stores")
@@ -77,22 +67,35 @@ export default function NewPurchasePage() {
     } catch (error) {
       console.error("Error fetching stores:", error);
     }
-  };
+  }, [supabase]);
 
-  const fetchProducts = async (storeId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from("products")
-        .select("*")
-        .eq("store_id", storeId)
-        .order("name");
+  const fetchProducts = useCallback(
+    async (storeId: string) => {
+      try {
+        const { data, error } = await supabase
+          .from("products")
+          .select("*")
+          .eq("store_id", storeId)
+          .order("name");
 
-      if (error) throw error;
-      setProducts(data || []);
-    } catch (error) {
-      console.error("Error fetching products:", error);
+        if (error) throw error;
+        setProducts(data || []);
+      } catch (error) {
+        console.error("Error fetching products:", error);
+      }
+    },
+    [supabase]
+  );
+
+  useEffect(() => {
+    fetchStores();
+  }, [fetchStores]);
+
+  useEffect(() => {
+    if (formData.store_id) {
+      fetchProducts(formData.store_id);
     }
-  };
+  }, [formData.store_id, fetchProducts]);
 
   const handleInputChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -194,7 +197,7 @@ export default function NewPurchasePage() {
               </Select>
             </div>
 
-            {/* Product Selection - FIXED */}
+            {/* Product Selection */}
             <div className="space-y-2">
               <Label htmlFor="product_id">Product *</Label>
               <Select

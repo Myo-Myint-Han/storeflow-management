@@ -23,6 +23,7 @@ import {
   LogOut,
   Menu,
   X,
+  Users,
 } from "lucide-react";
 
 export default function DashboardLayout({
@@ -70,6 +71,12 @@ export default function DashboardLayout({
       href: "/dashboard/sales/new",
       icon: ShoppingBag,
       roles: ["owner", "receptionist"],
+    },
+    {
+      name: "Customers",
+      href: "/dashboard/customers",
+      icon: Users,
+      roles: ["owner"],
     },
     {
       name: "Purchases",

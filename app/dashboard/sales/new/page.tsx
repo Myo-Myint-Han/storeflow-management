@@ -25,13 +25,23 @@ import {
   CheckCircle2,
   Package,
   Loader2,
+  User,
+  Percent,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
 type Product = Database["public"]["Tables"]["products"]["Row"];
+type Customer = Database["public"]["Tables"]["customers"]["Row"];
 
 type CartItem = Product & {
   quantity: number;
+};
+
+const CUSTOMER_TYPE_COLORS = {
+  regular: "bg-blue-100 text-blue-800",
+  vip: "bg-purple-100 text-purple-800",
+  wholesale: "bg-green-100 text-green-800",
 };
 
 export default function NewSalePage() {
@@ -39,14 +49,18 @@ export default function NewSalePage() {
   const supabase = createClient();
 
   const [products, setProducts] = useState<Product[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [customerSearchQuery, setCustomerSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  // ✅ FIXED: Changed from "transfer" to "other"
   const [paymentMethod, setPaymentMethod] = useState<"cash" | "card" | "other">(
     "cash"
+  );
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(
+    null
   );
 
   // Debounce search
@@ -58,18 +72,15 @@ export default function NewSalePage() {
     return () => clearTimeout(timer);
   }, [searchQuery]);
 
-  // ✅ FIXED: Use useCallback to memoize fetchProducts
   const fetchProducts = useCallback(async () => {
     try {
       setLoading(true);
-      // ✅ FIXED: Select all fields with "*" to match Product type
       let query = supabase
         .from("products")
         .select("*")
         .gt("stock", 0)
         .order("name");
 
-      // If receptionist, filter by their store
       if (profile?.role === "receptionist" && profile.store_id) {
         query = query.eq("store_id", profile.store_id);
       }
@@ -86,10 +97,27 @@ export default function NewSalePage() {
     }
   }, [profile?.role, profile?.store_id, supabase]);
 
-  // ✅ FIXED: Added fetchProducts to dependency array
+  const fetchCustomers = useCallback(async () => {
+    try {
+      let query = supabase.from("customers").select("*").order("name");
+
+      if (profile?.role === "receptionist" && profile.store_id) {
+        query = query.eq("store_id", profile.store_id);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+      setCustomers(data || []);
+    } catch (error) {
+      console.error("Error fetching customers:", error);
+    }
+  }, [profile?.role, profile?.store_id, supabase]);
+
   useEffect(() => {
     fetchProducts();
-  }, [fetchProducts]);
+    fetchCustomers();
+  }, [fetchProducts, fetchCustomers]);
 
   const addToCart = (product: Product) => {
     setCart((prev) => {
@@ -137,19 +165,39 @@ export default function NewSalePage() {
     );
   };
 
-  const calculateTotal = () => {
+  const calculateSubtotal = () => {
     return cart.reduce(
       (sum, item) => sum + item.selling_price * item.quantity,
       0
     );
   };
 
+  // ✅ UPDATED: Handle both percentage and fixed amount discounts
+  const calculateDiscount = () => {
+    if (!selectedCustomer) return 0;
+    const subtotal = calculateSubtotal();
+
+    if (selectedCustomer.discount_type === "percentage") {
+      // Percentage discount
+      return (subtotal * selectedCustomer.discount_percentage) / 100;
+    } else {
+      // Fixed amount discount - don't exceed subtotal
+      return Math.min(selectedCustomer.discount_fixed_amount, subtotal);
+    }
+  };
+
+  const calculateTotal = () => {
+    return calculateSubtotal() - calculateDiscount();
+  };
+
   const calculateProfit = () => {
-    return cart.reduce(
+    const subtotal = cart.reduce(
       (sum, item) =>
         sum + (item.selling_price - item.buying_price) * item.quantity,
       0
     );
+    // Reduce profit by discount amount
+    return subtotal - calculateDiscount();
   };
 
   const handleCompleteSale = async () => {
@@ -161,11 +209,12 @@ export default function NewSalePage() {
     try {
       setSaving(true);
 
+      const subtotal = calculateSubtotal();
+      const discountAmount = calculateDiscount();
       const totalAmount = calculateTotal();
       const profit = calculateProfit();
       const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
 
-      // Get store_id
       let storeId = profile?.store_id;
       if (profile?.role === "owner") {
         storeId = cart[0].store_id;
@@ -176,7 +225,7 @@ export default function NewSalePage() {
         return;
       }
 
-      // Create sale record
+      // Create sale record with discount information
       const { data: saleData, error: saleError } = await supabase
         .from("sales")
         .insert({
@@ -185,6 +234,9 @@ export default function NewSalePage() {
           profit: profit,
           payment_method: paymentMethod,
           sold_by: profile?.id,
+          customer_id: selectedCustomer?.id || null,
+          discount_amount: discountAmount,
+          original_amount: subtotal,
         })
         .select()
         .single();
@@ -208,7 +260,7 @@ export default function NewSalePage() {
 
       if (itemsError) throw itemsError;
 
-      // ⚡ OPTIMISTIC UPDATE: Update products state immediately
+      // Optimistic update
       setProducts((prevProducts) =>
         prevProducts.map((product) => {
           const soldItem = cart.find((item) => item.id === product.id);
@@ -222,23 +274,26 @@ export default function NewSalePage() {
         })
       );
 
-      // Success toast
+      // Success message
+      let successMessage = `Total: ฿${totalAmount.toFixed(
+        2
+      )} • ${totalItems} items sold`;
+      if (discountAmount > 0) {
+        successMessage += ` • ฿${discountAmount.toFixed(2)} discount applied`;
+      }
+
       toast.success("🎉 Sale Completed Successfully!", {
-        description: `Total: ฿${totalAmount.toFixed(
-          2
-        )}• ${totalItems} items sold`,
+        description: successMessage,
         duration: 3000,
       });
 
-      // Reset cart immediately
+      // Reset
       setCart([]);
+      setSelectedCustomer(null);
       setPaymentMethod("cash");
-
-      // ⚡ NO REFETCH - Stock already updated optimistically above!
     } catch (error) {
       console.error("Error completing sale:", error);
       toast.error("Failed to complete sale. Please try again.");
-      // On error, refetch to get correct data
       fetchProducts();
     } finally {
       setSaving(false);
@@ -252,7 +307,16 @@ export default function NewSalePage() {
       product.category?.toLowerCase().includes(debouncedSearch.toLowerCase())
   );
 
+  const filteredCustomers = customers.filter(
+    (customer) =>
+      customer.name.toLowerCase().includes(customerSearchQuery.toLowerCase()) ||
+      customer.phone?.toLowerCase().includes(customerSearchQuery.toLowerCase())
+  );
+
   const totalItems = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const subtotal = calculateSubtotal();
+  const discount = calculateDiscount();
+  const total = calculateTotal();
 
   return (
     <div className="space-y-6">
@@ -379,8 +443,105 @@ export default function NewSalePage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Customer Selection */}
+              <div className="space-y-2 p-3 bg-gray-50 rounded-lg">
+                <Label className="flex items-center gap-2">
+                  <User className="h-4 w-4" />
+                  Customer (Optional)
+                </Label>
+                {selectedCustomer ? (
+                  <div className="flex items-center justify-between p-3 bg-white rounded-md border">
+                    <div className="flex-1">
+                      <p className="font-medium text-sm">
+                        {selectedCustomer.name}
+                      </p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <Badge
+                          className={
+                            CUSTOMER_TYPE_COLORS[selectedCustomer.customer_type]
+                          }
+                        >
+                          {selectedCustomer.customer_type.toUpperCase()}
+                        </Badge>
+                        {/* ✅ Show discount based on type */}
+                        <span className="text-xs text-green-600 font-medium flex items-center">
+                          {selectedCustomer.discount_type === "percentage" ? (
+                            <>
+                              <Percent className="h-3 w-3 mr-0.5" />
+                              {selectedCustomer.discount_percentage}% discount
+                            </>
+                          ) : (
+                            <>
+                              ฿{selectedCustomer.discount_fixed_amount} discount
+                            </>
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setSelectedCustomer(null)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <Input
+                        placeholder="Search customer..."
+                        value={customerSearchQuery}
+                        onChange={(e) => setCustomerSearchQuery(e.target.value)}
+                        className="pl-10"
+                      />
+                    </div>
+                    {customerSearchQuery && (
+                      <div className="max-h-40 overflow-y-auto space-y-1 border rounded-md p-2 bg-white">
+                        {filteredCustomers.length > 0 ? (
+                          filteredCustomers.map((customer) => (
+                            <div
+                              key={customer.id}
+                              className="p-2 hover:bg-gray-50 rounded cursor-pointer"
+                              onClick={() => {
+                                setSelectedCustomer(customer);
+                                setCustomerSearchQuery("");
+                              }}
+                            >
+                              <p className="font-medium text-sm">
+                                {customer.name}
+                              </p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <Badge
+                                  className={
+                                    CUSTOMER_TYPE_COLORS[customer.customer_type]
+                                  }
+                                >
+                                  {customer.customer_type}
+                                </Badge>
+                                {/* ✅ Show discount based on type */}
+                                <span className="text-xs text-gray-500">
+                                  {customer.discount_type === "percentage"
+                                    ? `${customer.discount_percentage}% off`
+                                    : `฿${customer.discount_fixed_amount} off`}
+                                </span>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <p className="text-sm text-gray-500 text-center py-2">
+                            No customers found
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* Cart Items */}
-              <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2">
                 {cart.length === 0 ? (
                   <div className="text-center py-12 text-gray-400">
                     <ShoppingCart className="h-16 w-16 mx-auto mb-3 opacity-50" />
@@ -480,20 +641,31 @@ export default function NewSalePage() {
                     <div className="flex justify-between text-sm">
                       <span className="text-gray-600">Subtotal:</span>
                       <span className="font-medium">
-                        ฿{calculateTotal().toFixed(2)}
+                        ฿{subtotal.toFixed(2)}
                       </span>
                     </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-gray-600">Profit:</span>
-                      <span className="font-medium text-green-600">
-                        ฿{calculateProfit().toFixed(2)}
-                      </span>
-                    </div>
+                    {discount > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-600 flex items-center gap-1">
+                          Discount
+                          {selectedCustomer && (
+                            <span className="text-xs text-green-600">
+                              {/* ✅ Show discount type in summary */}
+                              {selectedCustomer.discount_type === "percentage"
+                                ? `(${selectedCustomer.discount_percentage}%)`
+                                : `(฿${selectedCustomer.discount_fixed_amount})`}
+                            </span>
+                          )}
+                          :
+                        </span>
+                        <span className="font-medium text-green-600">
+                          -฿{discount.toFixed(2)}
+                        </span>
+                      </div>
+                    )}
                     <div className="flex justify-between text-lg font-bold pt-3 border-t">
                       <span>Total:</span>
-                      <span className="text-blue-600">
-                        ฿{calculateTotal().toFixed(2)}
-                      </span>
+                      <span className="text-blue-600">฿{total.toFixed(2)}</span>
                     </div>
                   </div>
 
